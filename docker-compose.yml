@@ -1,0 +1,20 @@
+version: '3'
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: multiple_db_same_tables
+    environment:
+      - APPLICATION_PORT=3310
+      - DATABASE_URL=postgres://forest:secret@host.docker.internal:5435/america
+      - DATABASE_SCHEMA=public
+      - DATABASE_SSL=false
+      - FOREST_AUTH_SECRET=4a9afcec8ae85c7bf135cc0bf3f0173609afd704c789d41c8e1f6786afb2d217d6e64e6782e6c7b4d9c707481990753c
+      - FOREST_ENV_SECRET=8e15be256b09ec41f4ff1047e72be17cacd68da15faad716542983d426de221b
+      - NODE_TLS_REJECT_UNAUTHORIZED=0
+      - FOREST_URL=https://api.development.forestadmin.com
+    ports:
+      - "3310:3310"
+    volumes:
+      - ./:/usr/src/app
