@@ -3,26 +3,20 @@
 module.exports = (databaseName) => (sequelize, DataTypes) => {
   // This section contains the fields of your model, mapped to your table's columns.
   // Learn more here: https://docs.forestadmin.com/documentation/v/v5/reference-guide/models/enrich-your-models#declaring-a-new-field-in-a-model
-  const Users = sequelize.define(`${databaseName}Users`, {
-    firstname: {
-      type: DataTypes.STRING,
-    },
-    lastname: {
-      type: DataTypes.STRING,
-    },
-    email: {
+  const Companies = sequelize.define(`${databaseName}Companies`, {
+    name: {
       type: DataTypes.STRING,
     },
   }, {
-    tableName: 'users',
+    tableName: 'companies',
     timestamps: false,
     schema: process.env.DATABASE_SCHEMA,
   });
 
   // This section contains the relationships for this model. See: https://docs.forestadmin.com/documentation/v/v5/reference-guide/relationships#adding-relationships.
-  Users.associate = (models) => {
-    Users.belongsTo(models[`${databaseName}Companies`], {
-      as: 'company',
+  Companies.associate = (models) => {
+    Companies.hasMany(models[`${databaseName}Users`], {
+      as: 'users',
       foreignKey: {
         name: 'companyId',
         field: 'company_id',
@@ -30,5 +24,5 @@ module.exports = (databaseName) => (sequelize, DataTypes) => {
     });
   };
 
-  return Users;
+  return Companies;
 };

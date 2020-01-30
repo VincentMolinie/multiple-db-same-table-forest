@@ -41,7 +41,7 @@ databases.forEach((database) => {
     })
     .forEach(function (file) {
       try {
-        var model = connection['import'](path.join(__dirname, database.name, file));
+        const model = connection.import(path.join(__dirname, database.name, file));
         sequelize[model.name] = model;
         models[database.name][model.name] = model;
       } catch (error) {
@@ -51,7 +51,7 @@ databases.forEach((database) => {
 
   Object.keys(models[database.name]).forEach(function(modelName) {
     if ('associate' in models[database.name][modelName]) {
-      models[database.name][modelName].associate(sequelize[database.name].models);
+      models[database.name][modelName].associate(models[database.name]);
     }
   });
 });

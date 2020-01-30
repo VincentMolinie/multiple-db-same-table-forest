@@ -1,4 +1,5 @@
 const { collection } = require('forest-express-sequelize');
+const models = require('../models');
 
 // This file allows you to add to your Forest UI:
 // - Smart actions: https://docs.forestadmin.com/documentation/reference-guide/actions/create-and-manage-smart-actions
@@ -24,6 +25,21 @@ collection('users', {
       type: 'Enum',
       enums: ['europe', 'america'],
       isRequired: true,
+      validate: {}
+    }, {
+      field: 'company',
+      type: 'String',
+      reference: 'companies.id',
+      get(user) {
+        if (!user.company) {
+          return null;
+        }
+        return {
+          ...user.company,
+          localisation: user.localisation,
+          id: `${user.localisation}-${user.company.id}`,
+        };
+      },
     }],
     actions: [],
     segments: [],
