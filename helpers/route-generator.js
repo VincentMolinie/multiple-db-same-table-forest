@@ -73,10 +73,12 @@ class RouteGenerator {
     const model = this.getModel(DEFAULT_DATABASE);
     Object.keys(model.associations).forEach((associationName) => {
       const association = model.associations[associationName];
-      const associationModel = association.target;
       const { associationType } = association;
       if (associationType === 'HasMany') {
         this.generateGetHasMany(associationName, association);
+        this.generateAddToHasMany(associationName, association);
+      } else if (associationType === 'BelongsTo') {
+        this.generateUpdateBelongsTo(associationName, association);
       }
     });
   }
@@ -85,16 +87,73 @@ class RouteGenerator {
     this.router.get(`/${this.modelName}/:recordId/relationships/${relationshipName}`, (request, response, next) => {
       const [databaseName, recordId] = request.params.recordId.split('-');
       const recordsGetter = this.getRightRecordHelper(RecordsGetter, databaseName, association.target);
+      const recordsCounter = this.getRightRecordHelper(RecordsCounter, databaseName, association.target);
 
       const { query } = request;
       query.filters = JSON.stringify({ field: association.foreignKey, operator: 'equal', value: recordId });
 
-      recordsGetter.getAll(query)
-        .then(records => records.map(record => this.transformRecordBeforeSerialization(association.target, record, databaseName)))
-        .then(records => {
-          const recordSerializer = new RecordSerializer({ name: association.target.name });
-          return recordSerializer.serialize(records);
+      Promise.all([
+        recordsGetter.getAll(query),
+        recordsCounter.count(query),
+      ])
+        .then(([records, count]) => {
+          const recordsTransformed = records.map(record => this.transformRecordBeforeSerialization(association.target, record, databaseName));
+          return {
+            records: recordsTransformed,
+            count,
+          };
         })
+        .then(({ records, count }) => {
+          let smartCollectionName = association.target.name.substring(databaseName.length);
+          smartCollectionName = smartCollectionName.charAt(0).toLowerCase() + smartCollectionName.substring(1);
+          const recordSerializer = new RecordSerializer({ name: smartCollectionName });
+          return recordSerializer.serialize(records, { count });
+        })
+        .then(recordSerialized => response.send(recordSerialized))
+        .catch(next);
+    });
+  }
+
+  generateAddToHasMany(relationshipName, association) {
+    this.router.post(`/${this.modelName}/:recordId/relationships/${relationshipName}`, (request, response, next) => {
+      const [databaseName, recordId] = request.params.recordId.split('-');
+      const recordUpdater = this.getRightRecordHelper(RecordUpdater, databaseName, association.target);
+
+      const promises = [];
+      for (let i = 0; i < request.body.data.length; i += 1) {
+        const data = request.body.data[i];
+        const [relationshipDatabaseName, relationshipRecordId] = data.id.split('-');
+        if (relationshipDatabaseName !== databaseName) {
+          response.status(422).send({ error: 'The two records to associate should be in the same localisation' });
+          return;
+        }
+
+        promises.push(recordUpdater.update({ [association.foreignKey]: recordId }, relationshipRecordId));
+      }
+
+      Promise.all(promises)
+        .then(() => response.status(204).send())
+        .catch(next);
+    });
+  }
+
+  generateUpdateBelongsTo(relationshipName, association) {
+    this.router.put(`/${this.modelName}/:recordId/relationships/${relationshipName}`, (request, response, next) => {
+      const [databaseName, recordId] = request.params.recordId.split('-');
+      const recordUpdater = this.getRightRecordHelper(RecordUpdater, databaseName);
+
+      let newBelongsToId = null;
+      if (request.body.data && request.body.data.id) {
+        const [relationshipDatabaseName, relationshipRecordId] = request.body.data.id.split('-');
+        if (relationshipDatabaseName !== databaseName) {
+          response.status(422).send({ error: 'The two records to associate should be in the same localisation' });
+          return;
+        }
+        newBelongsToId = relationshipRecordId
+      }
+
+      recordUpdater.update({ [association.foreignKey]: newBelongsToId }, recordId)
+        .then(record => this.recordSerializer.serialize(this.transformRecordBeforeSerialization(this.getModel(databaseName), record, databaseName)))
         .then(recordSerialized => response.send(recordSerialized))
         .catch(next);
     });
@@ -118,14 +177,19 @@ class RouteGenerator {
         .then(recordToCreate => {
           const recordCreator = this.getRightRecordHelper(RecordCreator, recordToCreate.localisation || DEFAULT_DATABASE);
           const model = this.getModel(DEFAULT_DATABASE);
+
+          // NOTICE: We need to transform all relationships id with the correct id
           Object.values(model.associations).forEach(association => {
             if (recordToCreate[association.as]) {
               const [_, foreignKeyId] = recordToCreate[association.as].split('-');
               recordToCreate[association.as] = foreignKeyId;
             }
           });
+
           return recordCreator.create(recordToCreate)
-            .then(record => this.recordSerializer.serialize(this.transformRecordBeforeSerialization(this.getModel(databaseName), record, recordToCreate.localisation)))
+            .then(record => this.recordSerializer.serialize(
+              this.transformRecordBeforeSerialization(this.getModel(recordToCreate.localisation), record, recordToCreate.localisation)
+            ))
             .then(recordSerialized => response.send(recordSerialized));
         })
         .catch(next);
@@ -160,7 +224,21 @@ class RouteGenerator {
   generateListRoute() {
     this.router.get(`/${this.modelName}`, this.permissionMiddlewareCreator.list(), (request, response, next) => {
       // Learn what this route does here: https://docs.forestadmin.com/documentation/v/v5/reference-guide/routes/default-routes#get-a-list-of-records
-      const recordsHelpers = DATABASE_NAMES.map(databaseName => {
+      const referer = request.header('referer');
+      let databaseNames = DATABASE_NAMES;
+      if (referer && referer.includes('/index/record')) {
+        // NOTICE: this means we are editing a record so in that case we want only the record of the same database
+        let indexOfIndexRecord = referer.indexOf('/index/record/');
+        let recordIdWithDatabase = referer.substring(indexOfIndexRecord + '/index/record/'.length);
+        recordIdWithDatabase = recordIdWithDatabase.substring(recordIdWithDatabase.indexOf('/') + 1);
+        recordIdWithDatabase = recordIdWithDatabase.substring(0, recordIdWithDatabase.indexOf('/'));
+
+        // NOTICE: We have just extracted the recordId
+        const [databaseName, recordId] = recordIdWithDatabase.split('-');
+        databaseNames = [databaseName];
+      }
+
+      const recordsHelpers = databaseNames.map(databaseName => {
         const recordsGetter = new RecordsGetter(this.getModel(databaseName));
         const recordsCounter = new RecordsCounter(this.getModel(databaseName));
         return { recordsGetter, recordsCounter, databaseName };
