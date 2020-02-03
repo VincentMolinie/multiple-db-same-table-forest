@@ -197,11 +197,12 @@ class RouteGenerator {
   }
 
   generateUpdateRoute() {
-    this.router.put(`/${this.modelName}/:recordId`, this.permissionMiddlewareCreator.update(), (request, response, next) => {
+    this.router.put(`/${this.modelName}/:recordId`, (request, response, next) => {
       // Learn what this route does here: https://docs.forestadmin.com/documentation/v/v5/reference-guide/routes/default-routes#update-a-record
       const [databaseName, recordId] = request.params.recordId.split('-');
       const recordUpdater = this.getRightRecordHelper(RecordUpdater, databaseName);
 
+      console.log(request, request.body.data);
       recordUpdater.deserialize(request.body)
         .then(recordToUpdate => recordUpdater.update(recordToUpdate, recordId))
         .then(record => this.recordSerializer.serialize(this.transformRecordBeforeSerialization(this.getModel(databaseName), record, databaseName)))
@@ -224,17 +225,10 @@ class RouteGenerator {
   generateListRoute() {
     this.router.get(`/${this.modelName}`, this.permissionMiddlewareCreator.list(), (request, response, next) => {
       // Learn what this route does here: https://docs.forestadmin.com/documentation/v/v5/reference-guide/routes/default-routes#get-a-list-of-records
-      const referer = request.header('referer');
       let databaseNames = DATABASE_NAMES;
-      if (referer && referer.includes('/index/record')) {
+      if (request.query && request.query.context && request.query.context.recordId) {
         // NOTICE: this means we are editing a record so in that case we want only the record of the same database
-        let indexOfIndexRecord = referer.indexOf('/index/record/');
-        let recordIdWithDatabase = referer.substring(indexOfIndexRecord + '/index/record/'.length);
-        recordIdWithDatabase = recordIdWithDatabase.substring(recordIdWithDatabase.indexOf('/') + 1);
-        recordIdWithDatabase = recordIdWithDatabase.substring(0, recordIdWithDatabase.indexOf('/'));
-
-        // NOTICE: We have just extracted the recordId
-        const [databaseName, recordId] = recordIdWithDatabase.split('-');
+        const [databaseName] = request.query.context.recordId.split('-');
         databaseNames = [databaseName];
       }
 
