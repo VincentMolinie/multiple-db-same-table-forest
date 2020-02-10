@@ -83,28 +83,28 @@ class RouteGenerator {
     });
   }
 
-  generateGetHasMany(relationshipName, association) {
+  generateGetHasMany(relationshipName, associationDefault) {
     this.router.get(`/${this.modelName}/:recordId/relationships/${relationshipName}`, (request, response, next) => {
       const [databaseName, recordId] = request.params.recordId.split('-');
-      const recordsGetter = this.getRightRecordHelper(RecordsGetter, databaseName, association.target);
-      const recordsCounter = this.getRightRecordHelper(RecordsCounter, databaseName, association.target);
+      const recordsGetter = this.getRightRecordHelper(RecordsGetter, databaseName, associationDefault.target);
+      const recordsCounter = this.getRightRecordHelper(RecordsCounter, databaseName, associationDefault.target);
 
       const { query } = request;
-      query.filters = JSON.stringify({ field: association.foreignKey, operator: 'equal', value: recordId });
+      query.filters = JSON.stringify({ field: associationDefault.foreignKey, operator: 'equal', value: recordId });
 
       Promise.all([
         recordsGetter.getAll(query),
         recordsCounter.count(query),
       ])
         .then(([records, count]) => {
-          const recordsTransformed = records.map(record => this.transformRecordBeforeSerialization(association.target, record, databaseName));
+          const recordsTransformed = records.map(record => this.transformRecordBeforeSerialization(associationDefault.target, record, databaseName));
           return {
             records: recordsTransformed,
             count,
           };
         })
         .then(({ records, count }) => {
-          let smartCollectionName = association.target.name.substring(databaseName.length);
+          let smartCollectionName = associationDefault.target.name.substring(DEFAULT_DATABASE.length);
           smartCollectionName = smartCollectionName.charAt(0).toLowerCase() + smartCollectionName.substring(1);
           const recordSerializer = new RecordSerializer({ name: smartCollectionName });
           return recordSerializer.serialize(records, { count });
